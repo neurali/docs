@@ -1038,6 +1038,8 @@ var Stemcanvas = /** @class */ (function () {
         // }
     };
     Stemcanvas.prototype.PointerUpEvent = function (e) {
+        console.log("up");
+        console.log(this.toolbox.selectedtool);
         e.preventDefault();
         if (e.pointerType == "touch") {
             this.touchcount--;
@@ -1056,6 +1058,7 @@ var Stemcanvas = /** @class */ (function () {
             this.drawingdata.push(this.currentstroke);
         }
         else if (this.toolbox.selectedtool == "SELECT") {
+            console.log("selecting");
             //check if there is already a selected object
             if (this.selectionManager.currentlySelected != null) {
                 if (this.cursor.interacting) {
