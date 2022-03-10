@@ -1,18 +1,3 @@
-var __extends = (this && this.__extends) || (function () {
-    var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
-            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
-        return extendStatics(d, b);
-    };
-    return function (d, b) {
-        if (typeof b !== "function" && b !== null)
-            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
-        extendStatics(d, b);
-        function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
-    };
-})();
 var Stemcanvas = /** @class */ (function () {
     function Stemcanvas(id) {
         this.canvasscrollx = 0;
@@ -80,9 +65,6 @@ var Stemcanvas = /** @class */ (function () {
         }
         this.menuImage.src = "media/cursors/c_Menu.png";
         this.drawingdata = new Array();
-        this.undoActions = new Array();
-        this.redoActions = new Array();
-        this.debug = document.getElementById("debug");
         this.canvasbackground = document.getElementById("canvasbackground");
         this.canvascontainer = document.getElementById("canvas-scroll-container");
         this.drawingcanvas = document.getElementById(id);
@@ -90,12 +72,13 @@ var Stemcanvas = /** @class */ (function () {
         this.cursorcanvas = document.getElementById("cursorcanvas");
         this.interfacecanvas = document.getElementById("interfacecanvas");
         this.debugcanvas = document.getElementById("debugcanvas");
+        this.debug = document.getElementById("debug");
         this.initialisecanvas();
+        this.undoredo = new StateManager(this.drawingdata);
         this.startTimer();
         requestAnimationFrame(this.mainloop.bind(this));
     }
     Stemcanvas.prototype.initialisecanvas = function () {
-        //live check:
         var _this = this;
         this.canvasbackground.style.minHeight = Canvasconstants.height + "px";
         this.canvasbackground.style.minWidth = Canvasconstants.width + "px";
@@ -119,9 +102,6 @@ var Stemcanvas = /** @class */ (function () {
         this.contextCursor = this.cursorcanvas.getContext("2d");
         this.contextInterface = this.interfacecanvas.getContext("2d");
         this.contextDebug = this.debugcanvas.getContext("2d");
-        //prep drawing canvas
-        //  this.contextDrawing.fillStyle = "white";
-        //  this.contextDrawing.fillRect(0, 0, this.drawingcanvas.width, this.drawingcanvas.height);
         this.contextCursor.fillStyle = "black";
         //create event element
         this.eventel = document.createElement("a");
@@ -130,6 +110,7 @@ var Stemcanvas = /** @class */ (function () {
         this.drawingcanvas.appendChild(this.eventel);
         this.toolbox = new Toolbox(this.eventel);
         this.eventel.addEventListener(toolboxevents.toolchanged, function () {
+            console.log("toolchanged");
             _this.cursor.currentTool = _this.toolbox.selectedtool;
             _this.selectionManager.currentSelectionID = "";
             _this.selectionManager.currentlySelected = null;
@@ -139,25 +120,47 @@ var Stemcanvas = /** @class */ (function () {
             _this.touchcount = 0; //reset touch count (as a quick fix)
         });
         this.eventel.addEventListener(toolboxevents.sizechanged, function () {
+            console.log("sizechanged");
             var size = _this.toolbox.selectedDrawSize;
             if (_this.selectionManager.currentlySelected != null) {
+                var widthundo = new UndoAction(UndoActionTypes.widthsingle);
+                widthundo.setWidthSingle(_this.selectionManager.currentlySelected, _this.selectionManager.currentlySelected.strokewidth, size);
                 _this.selectionManager.currentlySelected.strokewidth = size;
+                _this.undoredo.save(widthundo);
             }
             else if (_this.selectionManager.currentlySelectedMulti != null) {
+                var previouswidths = new Array();
+                for (var i = 0; i < _this.selectionManager.currentlySelectedMulti.length; i++) {
+                    previouswidths.push(_this.selectionManager.currentlySelectedMulti[i].strokewidth);
+                }
+                var multiwidthundo = new UndoAction(UndoActionTypes.widthmulti);
+                multiwidthundo.setWidthMulti(_this.selectionManager.currentlySelectedMulti, previouswidths, _this.toolbox.selectedDrawSize);
                 for (var i = 0; i < _this.selectionManager.currentlySelectedMulti.length; i++) {
                     _this.selectionManager.currentlySelectedMulti[i].strokewidth = _this.toolbox.selectedDrawSize;
                 }
+                _this.undoredo.save(multiwidthundo);
             }
             _this.updateDrawing();
         });
         this.eventel.addEventListener(toolboxevents.colourchanged, function () {
+            console.log("colourchanged");
             if (_this.selectionManager.currentlySelected != null) {
+                var colourundo = new UndoAction(UndoActionTypes.coloursingle);
+                colourundo.setColourSingle(_this.selectionManager.currentlySelected, _this.selectionManager.currentlySelected.strokecolour, _this.toolbox.selectedColour);
                 _this.selectionManager.currentlySelected.strokecolour = _this.toolbox.selectedColour;
+                _this.undoredo.save(colourundo);
             }
             else if (_this.selectionManager.currentlySelectedMulti != null) {
+                var prevcolours = new Array();
+                for (var i = 0; i < _this.selectionManager.currentlySelectedMulti.length; i++) {
+                    prevcolours.push(_this.selectionManager.currentlySelectedMulti[i].strokecolour);
+                }
+                var colourmultiundo = new UndoAction(UndoActionTypes.colourmulti);
+                colourmultiundo.setColourMulti(_this.selectionManager.currentlySelectedMulti, prevcolours, _this.toolbox.selectedColour);
                 for (var i = 0; i < _this.selectionManager.currentlySelectedMulti.length; i++) {
                     _this.selectionManager.currentlySelectedMulti[i].strokecolour = _this.toolbox.selectedColour;
                 }
+                _this.undoredo.save(colourmultiundo);
             }
             _this.updateDrawing();
         });
@@ -192,15 +195,12 @@ var Stemcanvas = /** @class */ (function () {
         //
         // 
         document.getElementById("btnGrid").addEventListener("click", function () {
-            console.log("btnclicked");
             _this.canvasBackgroundSwitch("grid");
         });
         document.getElementById("btnLines").addEventListener("click", function () {
-            console.log("btnclicked");
             _this.canvasBackgroundSwitch("lines");
         });
         document.getElementById("btnBlank").addEventListener("click", function () {
-            console.log("btnclicked");
             _this.canvasBackgroundSwitch("blank");
         });
         document.getElementById("btnSave").addEventListener("click", function () {
@@ -227,7 +227,6 @@ var Stemcanvas = /** @class */ (function () {
                 var questioncontainerbounds = questioncontainer.getBoundingClientRect();
                 var bottom = questioncontainerbounds.bottom;
                 var remainingspace = viewportheight - bottom;
-                console.log(remainingspace);
                 canvascontainer.style.height = "" + (remainingspace - 20) + "px";
                 showmorelabel.innerText = "-";
                 //now set max height of the canvas container to the remaining space on screen
@@ -241,7 +240,6 @@ var Stemcanvas = /** @class */ (function () {
                 var questioncontainerbounds = questioncontainer.getBoundingClientRect();
                 var bottom = questioncontainerbounds.bottom;
                 var remainingspace = viewportheight - bottom;
-                console.log(remainingspace);
                 canvascontainer.style.height = "" + (remainingspace - 20) + "px";
                 showmorelabel.innerText = "+";
             }
@@ -255,7 +253,6 @@ var Stemcanvas = /** @class */ (function () {
         this.canvascontainer.scrollLeft = ((Canvasconstants.width - this.canvascontainer.clientWidth) / 2);
     };
     Stemcanvas.prototype.canvasBackgroundSwitch = function (s) {
-        console.log(s);
         var canvasbackground = document.getElementById("canvasbackground");
         if (s == "blank") {
             canvasbackground.style.backgroundImage = "url(./media/canvasBG/blank.png)";
@@ -269,124 +266,22 @@ var Stemcanvas = /** @class */ (function () {
     };
     Stemcanvas.prototype.clearcanvas = function () {
         this.drawingdata = new Array();
-        this.undoActions = new Array();
-        this.redoActions = new Array();
+        this.undoredo.clear();
         this.selectionManager.FlushSelection();
         this.selectionManager = new SelectionManager(this.drawingdata, this.contextDebug);
         this.updateDrawing();
     };
     Stemcanvas.prototype.undo = function () {
-        if (this.undoActions.length < 1) {
-            if (this.drawingdata.length > 0) {
-                //pop last drawing object into the redo stack
-                var lastDrawnObject = this.drawingdata.pop();
-                this.redoActions.push(new UndoUndoObject(lastDrawnObject));
-            }
-        }
-        else {
-            var lastactionundone = this.undoActions[this.undoActions.length - 1];
-            if (lastactionundone.actiontype == "MOVE") {
-                var lastmove_1 = lastactionundone; //now we need the move data
-                var objecttomove_1;
-                this.drawingdata.forEach(function (s) {
-                    if (s.strokeid == lastmove_1.id) {
-                        objecttomove_1 = s;
-                    }
-                });
-                for (var i = 0; i < objecttomove_1.points.length; i++) {
-                    var p = objecttomove_1.points[i];
-                    p.x -= lastmove_1.vector.x;
-                    p.y -= lastmove_1.vector.y;
-                }
-            }
-            else if (lastactionundone.actiontype == "RESIZE") {
-                var lastresize_1 = lastactionundone;
-                var objecttoresize_1;
-                this.drawingdata.forEach(function (s) {
-                    if (s.strokeid == lastresize_1.id) {
-                        objecttoresize_1 = s;
-                    }
-                });
-                var invertedvector = new Vector(-lastresize_1.vector.x, -lastresize_1.vector.y);
-                var tempresizefromundo = this.resizeStroke(objecttoresize_1, invertedvector, lastresize_1.direction);
-                for (var i = 0; i < tempresizefromundo.points.length; i++) {
-                    var point = tempresizefromundo.points[i];
-                    objecttoresize_1.points[i].x = point.x;
-                    objecttoresize_1.points[i].y = point.y;
-                }
-            }
-            else if (lastactionundone.actiontype == "ERASE") {
-                var lasterase = lastactionundone;
-                this.drawingdata.push(lasterase.thestroke);
-            }
-            //now pop the action off the undo stack to the redo stack
-            this.redoActions.push(this.undoActions.pop());
-        }
+        this.undoredo.undo();
+        this.selectionManager.currentlySelected = null;
+        this.selectionManager.currentlySelectedMulti = null;
         this.updateDrawing();
-        console.log("redo stack length: ".concat(this.redoActions.length));
-        console.log("undo stack length: ".concat(this.undoActions.length));
-        console.log("drawing data length: ".concat(this.drawingdata.length));
     };
     Stemcanvas.prototype.redo = function () {
-        if (this.redoActions.length > 0) {
-            var lastaction = this.redoActions[this.redoActions.length - 1];
-            if (lastaction.actiontype == "ERASE") {
-                var eraseaction = lastaction;
-                this.drawingdata.push(eraseaction.thestroke);
-            }
-            else if (lastaction.actiontype == "MOVE") {
-                var lastmove_2 = lastaction;
-                //
-                var objecttomove_2;
-                this.drawingdata.forEach(function (s) {
-                    if (s.strokeid == lastmove_2.id) {
-                        objecttomove_2 = s;
-                    }
-                });
-                for (var i = 0; i < objecttomove_2.points.length; i++) {
-                    var p = objecttomove_2.points[i];
-                    p.x += lastmove_2.vector.x;
-                    p.y += lastmove_2.vector.y;
-                }
-                //
-            }
-            else if (lastaction.actiontype == "RESIZE") {
-                var resizeaction_1 = lastaction;
-                //let lastresize = lastactionundone as UndoResizeAction;
-                var objecttoresize_2;
-                this.drawingdata.forEach(function (s) {
-                    if (s.strokeid == resizeaction_1.id) {
-                        objecttoresize_2 = s;
-                    }
-                });
-                var tempresizefromundo = this.resizeStroke(objecttoresize_2, resizeaction_1.vector, resizeaction_1.direction);
-                for (var i = 0; i < tempresizefromundo.points.length; i++) {
-                    var point = tempresizefromundo.points[i];
-                    objecttoresize_2.points[i].x = point.x;
-                    objecttoresize_2.points[i].y = point.y;
-                }
-                //
-            }
-            else if (lastaction.actiontype == "UNDO") {
-                //here we are adding the 'undone' object back to the drawing
-                //this doesnt need to get pushed into the redo stack (that would be undoing an undo of an undo? jeez this is doing my head in) but now we have an issue where if the user draws a stroke halfway
-                //in the undo stack, it doesnt get undone. maybe we should do away with (undoing strokes) and just have 'actions' that can be undone
-                var redoundo = lastaction;
-                this.drawingdata.push(redoundo.thestroke);
-                this.redoActions.pop();
-            }
-            if (lastaction.actiontype != "UNDO") {
-                this.undoActions.push(this.redoActions.pop());
-                this.redoActions = [];
-            }
-            this.updateDrawing();
-        }
-        else {
-            //do nothing
-        }
-        console.log("redo stack length: ".concat(this.redoActions.length));
-        console.log("undo stack length: ".concat(this.undoActions.length));
-        console.log("drawing data length: ".concat(this.drawingdata.length));
+        this.undoredo.redo();
+        this.selectionManager.currentlySelected = null;
+        this.selectionManager.currentlySelectedMulti = null;
+        this.updateDrawing();
     };
     Stemcanvas.prototype.copy = function () {
         if (this.selectionManager.currentlySelected != null) {
@@ -402,7 +297,6 @@ var Stemcanvas = /** @class */ (function () {
     Stemcanvas.prototype.paste = function () {
         this.selectionManager.pasteFromClipboard();
         this.updateDrawing();
-        this.debugtext(this.drawingdata.length);
     };
     //gets called by animation updates:
     Stemcanvas.prototype.mainloop = function () {
@@ -516,7 +410,6 @@ var Stemcanvas = /** @class */ (function () {
                                 var vector_1 = this.getCurrentStrokeVector();
                                 var previewstroke_1 = new Stemstroke();
                                 if (this.selectionManager.currentlySelected != null) {
-                                    console.log("currently selected is not null");
                                     this.selectionManager.currentlySelected.points.forEach(function (p) {
                                         previewstroke_1.points.push(new Stempoint(p.x + vector_1.x, p.y + vector_1.y));
                                     });
@@ -668,7 +561,6 @@ var Stemcanvas = /** @class */ (function () {
                                 var vector_2 = this.getCurrentStrokeVector();
                                 if (this.cursor.selectmodifier == "MOVE") {
                                     //calc and affect move vector to selected object points
-                                    console.log("currently multi selected");
                                     this.selectionManager.currentlySelectedMulti.forEach(function (s) {
                                         var tempstroke = new Stemstroke();
                                         s.points.forEach(function (p) {
@@ -893,6 +785,7 @@ var Stemcanvas = /** @class */ (function () {
         //todo handle clickdragging off the canvas and then returning in an unclicking state        
     };
     Stemcanvas.prototype.PointerMoveEvent = function (e) {
+        var _this = this;
         e.preventDefault();
         this.pen.X = e.pageX - (this.canvascontainer.offsetLeft) + this.canvasscrollx;
         this.pen.Y = e.pageY - (this.canvascontainer.offsetTop) + this.canvascrolly;
@@ -956,7 +849,6 @@ var Stemcanvas = /** @class */ (function () {
             }
             else {
                 //check if cursor is intersecting any selected objects
-                console.log("checking group selection modifier");
                 var box = this.selectionManager.getGroupBoundingBox();
                 if (box.Intersects(this.pen.X, this.pen.Y)) {
                     //now check if its in one of the corners
@@ -1002,28 +894,30 @@ var Stemcanvas = /** @class */ (function () {
         if (this.toolbox.selectedtool == "ERASE") {
             if (this.pen.penDown) {
                 var erasestrokelength = this.currentstroke.getPixelLength();
-                // if (erasestrokelength > Canvasconstants.multiselectMinimumLength) {
-                //     let strokestodelete: Array<number>;
-                //     let strokeindex = 0;
-                //     this.drawingdata.forEach(s => {
-                //         s.UpdateBoundingBox("");
-                //         let box = s.getCachedBoundingBox();
-                //         let lastpointinstroke = this.currentstroke.points[this.currentstroke.points.length - 1];
-                //         if (box.Intersects(lastpointinstroke.x, lastpointinstroke.y)) {
-                //             console.log("intersecting with a stroke");
-                //             s.points.forEach(p => {
-                //                 if (this.selectionManager.getDistanceBetweenTwoPoints(new Vector(p.x, p.y), new Vector(lastpointinstroke.x, lastpointinstroke.y)) > Canvasconstants.multiselectMinimumLength) {
-                //                     //so the stroke is close enough to the erase stroke, lets move it into the undo stack
-                //                     this.undoActions.push(new UndoEraseAction(this.drawingdata[strokeindex]));
-                //                     this.redoActions = [];
-                //                     this.drawingdata.splice(strokeindex, 1); //remove the entry from the array
-                //                     this.updateDrawing();
-                //                 }
-                //             });
-                //         }
-                //         strokeindex++;
-                //     });
-                // }
+                if (erasestrokelength > Canvasconstants.multiselectMinimumLength) {
+                    var strokestodelete_1 = new Array();
+                    var strokeindex_1 = 0;
+                    this.drawingdata.forEach(function (s) {
+                        s.UpdateBoundingBox("");
+                        var box = s.getCachedBoundingBox();
+                        var lastpointinstroke = _this.currentstroke.points[_this.currentstroke.points.length - 1];
+                        if (box.Intersects(lastpointinstroke.x, lastpointinstroke.y)) {
+                            s.points.forEach(function (p) {
+                                if (_this.selectionManager.getDistanceBetweenTwoPoints(new Vector(p.x, p.y), new Vector(lastpointinstroke.x, lastpointinstroke.y)) < Canvasconstants.multiselectMinimumLength) {
+                                    strokestodelete_1.push(s);
+                                    _this.drawingdata.splice(strokeindex_1);
+                                    _this.updateDrawing();
+                                    //so the stroke is close enough to the erase stroke, lets move it into the undo stack
+                                    // this.undoActions.push(new UndoEraseAction(this.drawingdata[strokeindex]));
+                                    // this.redoActions = [];
+                                    // this.drawingdata.splice(strokeindex, 1); //remove the entry from the array
+                                    // this.updateDrawing();
+                                }
+                            });
+                        }
+                        strokeindex_1++;
+                    });
+                }
             }
         }
         // //now check if the cursor is over a selection-hover-point
@@ -1096,8 +990,6 @@ var Stemcanvas = /** @class */ (function () {
         // }
     };
     Stemcanvas.prototype.PointerUpEvent = function (e) {
-        console.log("up");
-        console.log(this.toolbox.selectedtool);
         e.preventDefault();
         if (e.pointerType == "touch" || e.pointerType == "pen") {
             this.touchcount--;
@@ -1109,9 +1001,11 @@ var Stemcanvas = /** @class */ (function () {
             this.currentstroke.strokecolour = this.toolbox.selectedColour;
             this.currentstroke.strokewidth = this.toolbox.selectedDrawSize;
             this.drawingdata.push(this.currentstroke);
+            var action = new UndoAction(UndoActionTypes.newdraw);
+            action.setNewDrawnObject(this.currentstroke, this.toolbox.selectedtool);
+            this.undoredo.save(action);
         }
         else if (this.toolbox.selectedtool == "SELECT") {
-            console.log("selecting");
             //check if there is already a selected object
             if (this.selectionManager.currentlySelected != null) {
                 if (this.cursor.interacting) {
@@ -1126,9 +1020,10 @@ var Stemcanvas = /** @class */ (function () {
                                 p.x += x_1;
                                 p.y += y_1;
                             });
-                            var undomoveaction = new UndoMoveAction(new Vector(x_1, y_1), this.selectionManager.currentSelectionID + "");
-                            this.undoActions.push(undomoveaction);
-                            this.redoActions = [];
+                            var undomoveaction = new UndoAction(UndoActionTypes.movesingle);
+                            console.log(undomoveaction);
+                            undomoveaction.setMoveSingle(this.selectionManager.currentlySelected, new Vector(x_1, y_1));
+                            this.undoredo.save(undomoveaction);
                             this.selectionManager.currentlySelected.UpdateBoundingBox("");
                             this.selectionManager.fresh = false;
                             this.updateDrawing();
@@ -1140,22 +1035,52 @@ var Stemcanvas = /** @class */ (function () {
                     else {
                         //modifiers with 2 characters are for resize. this is the resize functionality
                         if (this.cursor.selectmodifier.length == 2) {
+                            var resizevector = this.getCurrentStrokeVector();
+                            var previewstroke = new Stemstroke();
+                            previewstroke = this.resizeStroke(this.selectionManager.currentlySelected, resizevector, this.cursor.selectmodifier);
+                            for (var i = 0; i < previewstroke.points.length; i++) {
+                                this.selectionManager.currentlySelected.points[i].x = previewstroke.points[i].x;
+                                this.selectionManager.currentlySelected.points[i].y = previewstroke.points[i].y;
+                            }
+                            //now we need to check if the stroke has been inverted (otherwise undo redo doesnt work)
+                            var invertingx = false;
+                            var invertingy = false;
+                            var ns = this.cursor.selectmodifier.substring(0, 1);
+                            var ew = this.cursor.selectmodifier.substring(1, 2);
+                            //
+                            if (ns == 'N') {
+                                if (resizevector.y > this.selectionManager.currentlySelected.getPerfectStrokeHeight()) {
+                                    //is inverting the y
+                                    invertingy = true;
+                                }
+                            }
+                            else if (ns == 'S') {
+                                if (-resizevector.y > this.selectionManager.currentlySelected.getPerfectStrokeHeight()) {
+                                    //is inverting the y
+                                    invertingy = true;
+                                }
+                            }
+                            if (ew == "E") {
+                                if (-resizevector.x > this.selectionManager.currentlySelected.getPerfectStrokeWidth()) {
+                                    //is inverting x
+                                    invertingx = true;
+                                }
+                            }
+                            else if (ew == "W") {
+                                if (resizevector.x > this.selectionManager.currentlySelected.getPerfectStrokeWidth()) {
+                                    //inverting x
+                                    invertingx = true;
+                                }
+                            }
+                            var singlemoveaction = new UndoAction(UndoActionTypes.resizesingle);
+                            singlemoveaction.setResizeSingle(this.selectionManager.currentlySelected, resizevector, this.cursor.selectmodifier, invertingx, invertingy);
+                            console.log(singlemoveaction);
+                            this.selectionManager.currentlySelected.UpdateBoundingBox("");
+                            this.selectionManager.fresh = false;
+                            this.undoredo.save(singlemoveaction);
+                            this.updateDrawing();
+                            ///////////////
                         }
-                        var resizevector = this.getCurrentStrokeVector();
-                        var previewstroke = new Stemstroke();
-                        previewstroke = this.resizeStroke(this.selectionManager.currentlySelected, resizevector, this.cursor.selectmodifier);
-                        for (var i = 0; i < this.selectionManager.currentlySelected.points.length; i++) {
-                            this.selectionManager.currentlySelected.points[i].x = previewstroke.points[i].x;
-                            this.selectionManager.currentlySelected.points[i].y = previewstroke.points[i].y;
-                        }
-                        //stupid hack coz data type is String not string
-                        var resizeundo = new UndoResizeAction(resizevector, this.selectionManager.currentSelectionID + "", this.cursor.selectmodifier);
-                        this.undoActions.push(resizeundo);
-                        this.redoActions = [];
-                        this.selectionManager.currentlySelected.UpdateBoundingBox("");
-                        this.selectionManager.fresh = false;
-                        this.updateDrawing();
-                        ///////////////
                     }
                 }
                 //cursor isnt interacting so we need are doing a normal selection
@@ -1163,8 +1088,6 @@ var Stemcanvas = /** @class */ (function () {
                     if (this.currentstroke.getPixelLength() > Canvasconstants.multiselectMinimumLength) {
                         this.currentstroke.UpdateBoundingBox("");
                         var box = this.currentstroke.getCachedBoundingBox();
-                        console.log(this.currentstroke);
-                        console.log(box);
                         this.selectionManager.selectInsideBox(box);
                     }
                     else {
@@ -1178,6 +1101,9 @@ var Stemcanvas = /** @class */ (function () {
                     //get move/resize vector
                     var vector_3 = this.getCurrentStrokeVector();
                     if (this.cursor.selectmodifier == "MOVE") {
+                        var multimoveaction = new UndoAction(UndoActionTypes.movemulti);
+                        multimoveaction.setMoveMulti(this.selectionManager.currentlySelectedMulti, vector_3);
+                        this.undoredo.save(multimoveaction);
                         //move all the objects in that are currently selected
                         this.selectionManager.currentlySelectedMulti.forEach(function (s) {
                             s.points.forEach(function (p) {
@@ -1191,6 +1117,41 @@ var Stemcanvas = /** @class */ (function () {
                         if (this.cursor.selectmodifier.length == 2) {
                             var bounds = this.selectionManager.getGroupBoundingBox();
                             var resizepreview = this.resizeMulti(this.selectionManager.currentlySelectedMulti, bounds, vector_3, this.cursor.selectmodifier);
+                            var action = new UndoAction(UndoActionTypes.resizemulti);
+                            var resizevector = this.getCurrentStrokeVector();
+                            var invertingx = false;
+                            var invertingy = false;
+                            var ns = this.cursor.selectmodifier.substring(0, 1);
+                            var ew = this.cursor.selectmodifier.substring(1, 2);
+                            var width = bounds.maxX - bounds.originx;
+                            var height = bounds.maxY - bounds.originy;
+                            //
+                            if (ns == 'N') {
+                                if (resizevector.y > height) {
+                                    //is inverting the y
+                                    invertingy = true;
+                                }
+                            }
+                            else if (ns == 'S') {
+                                if (-resizevector.y > height) {
+                                    //is inverting the y
+                                    invertingy = true;
+                                }
+                            }
+                            if (ew == "E") {
+                                if (-resizevector.x > width) {
+                                    //is inverting x
+                                    invertingx = true;
+                                }
+                            }
+                            else if (ew == "W") {
+                                if (resizevector.x > width) {
+                                    //inverting x
+                                    invertingx = true;
+                                }
+                            }
+                            action.setResizeMulti(this.selectionManager.currentlySelectedMulti, vector_3, this.cursor.selectmodifier, invertingx, invertingy);
+                            this.undoredo.save(action);
                             for (var i = 0; i < resizepreview.length; i++) {
                                 var strokeobj = this.selectionManager.currentlySelectedMulti[i];
                                 var changedstroke = resizepreview[i];
@@ -1221,7 +1182,6 @@ var Stemcanvas = /** @class */ (function () {
                     this.selectionManager.selectInsideBox(selectionbox);
                 }
                 else {
-                    console.log("selecting object at point");
                     this.selectionManager.selectObjectAtPoint(this.pen.X, this.pen.Y);
                 }
             }
@@ -1240,8 +1200,8 @@ var Stemcanvas = /** @class */ (function () {
                 if (indexunderpointer == null) {
                     return;
                 }
-                this.undoActions.push(new UndoEraseAction(this.drawingdata[indexunderpointer]));
-                this.redoActions = [];
+                // this.undoActions.push(new UndoEraseAction(this.drawingdata[indexunderpointer]));
+                // this.redoActions = [];
                 this.drawingdata.splice(indexunderpointer, 1); //remove the entry from the array
                 this.updateDrawing();
             }
@@ -1251,6 +1211,10 @@ var Stemcanvas = /** @class */ (function () {
             this.currentstroke.strokecolour = this.toolbox.selectedColour;
             this.currentstroke.strokewidth = this.toolbox.selectedDrawSize;
             this.drawingdata.push(this.currentstroke);
+            var undo = new UndoAction(UndoActionTypes.newdraw);
+            undo.stroke = this.currentstroke;
+            undo.drawtype = this.toolbox.selectedtool;
+            this.undoredo.save(undo);
             this.updateDrawing();
             this.currentstroke = null;
         }
@@ -1259,6 +1223,10 @@ var Stemcanvas = /** @class */ (function () {
             this.currentstroke.strokecolour = this.toolbox.selectedColour;
             this.currentstroke.strokewidth = this.toolbox.selectedDrawSize;
             this.drawingdata.push(this.currentstroke);
+            var undo = new UndoAction(UndoActionTypes.newdraw);
+            undo.stroke = this.currentstroke;
+            undo.drawtype = this.toolbox.selectedtool;
+            this.undoredo.save(undo);
             this.updateDrawing();
             this.currentstroke = null;
         }
@@ -1267,212 +1235,22 @@ var Stemcanvas = /** @class */ (function () {
             this.currentstroke.strokecolour = this.toolbox.selectedColour;
             this.currentstroke.strokewidth = this.toolbox.selectedDrawSize;
             this.drawingdata.push(this.currentstroke);
+            var undo = new UndoAction(UndoActionTypes.newdraw);
+            undo.stroke = this.currentstroke;
+            undo.drawtype = this.toolbox.selectedtool;
+            this.undoredo.save(undo);
             this.updateDrawing();
             this.currentstroke = null;
         }
         this.currentstroke = null;
         this.cursor.interacting = false;
         this.toolbox.isDrawingObject = false;
-        this.cursor.selectmodifier = ""; //reset move/resize modifier (touch specific requirement)
-        // else if (this.selectedTool == "TEXT") {
-        //     //show text entry pop over 
-        //     let customcontainer = document.getElementById("canvas-scroll-container");
-        //     // let popupdiv = document.createElement()
-        //     let textinputdiv = document.getElementById("text-input-modal");
-        //     textinputdiv.classList.remove("hide");
-        //     let canvasposition = this.canvas.getBoundingClientRect();
-        //     let inputbox = document.getElementById("text-input-box");
-        //     inputbox.style.left = (this.pendetails.X + 5 - this.pendetails.scrollx).toString() + "px";
-        //     inputbox.style.top = (canvasposition.top + this.pendetails.Y - 45).toString() + "px";
-        // }
-        // else if (this.selectedTool == "RECTANGLE") {
-        //     if (this.currentRectangle != null) {
-        //         this.currentRectangle.strokecolour = this.currentStrokeData.strokecolour;
-        //         this.currentRectangle.strokewidth = this.currentStrokeData.strokewidth;
-        //         this.currentRectangle.isFilled = this.currentStrokeData.isFilled;
-        //         this.drawing.push(this.currentRectangle);
-        //     }
-        //     this.selectedDrawnObject = this.currentRectangle;
-        //     this.currentRectangle = null;
-        // }
-        // else if (this.selectedTool == "CIRCLE") {
-        //     if (this.currentCircle != null) {
-        //         this.currentCircle.strokecolour = this.currentStrokeData.strokecolour;
-        //         this.currentCircle.strokewidth = this.currentStrokeData.strokewidth;
-        //         this.currentCircle.isFilled = this.currentStrokeData.isFilled;
-        //         this.drawing.push(this.currentCircle);
-        //         this.selectedDrawnObject = this.currentCircle;
-        //     }
-        //     this.currentCircle = null;
-        // }
-        // else if (this.selectedTool == "SELECT") {
-        //     if (this.ismovingobject) {
-        //         this.currentMove.startPoint = this.currentStrokeData.points[0];
-        //         this.currentMove.endPoint = this.currentStrokeData.points[this.currentStrokeData.points.length - 1];
-        //         //now find the stored stroke, and move all its points
-        //         let xvector = this.currentMove.endPoint.x - this.currentMove.startPoint.x;
-        //         let yvector = this.currentMove.endPoint.y - this.currentMove.startPoint.y;
-        //         if(this.selectedMultiDrawnObjects!= null && this.selectedDrawnObject == null) //if there are multiobjects selected
-        //         {
-        //             this.drawing.forEach(maindrawingitem => {
-        //                 this.selectedMultiDrawnObjects.drawingdata.forEach(selecteditem => {
-        //                     if(selecteditem.strokeid == maindrawingitem.strokeid)
-        //                     {
-        //                         maindrawingitem.points.forEach(p => {
-        //                             p.x += xvector;
-        //                             p.y += yvector;
-        //                         });
-        //                     }
-        //                 });
-        //             });
-        //         }                
-        //         if(this.selectedDrawnObject != null && this.selectedMultiDrawnObjects == null) 
-        //         {
-        //         // this.selectedDrawnObject?.strokeid
-        //         //loop through drawing to find the right object
-        //         this.drawing.forEach(stemobj => {
-        //             if (stemobj.strokeid == this.selectedDrawnObject.strokeid) //affect only the selected object
-        //             {
-        //                 stemobj.points.forEach(p => {
-        //                     p.x += xvector;
-        //                     p.y += yvector;
-        //                 });
-        //                 //because the textobject bounding box is created at mouse up, we also need to translate that too
-        //                 if (stemobj.objecttype == "TEXT") {
-        //                     stemobj.cachedBoundingBox.originx += xvector;
-        //                     stemobj.cachedBoundingBox.originy += yvector;
-        //                     stemobj.cachedBoundingBox.maxX += xvector;
-        //                     stemobj.cachedBoundingBox.maxY += yvector;
-        //                 }
-        //             }
-        //         });
-        //         }
-        //         this.currentMove = null;
-        //     }
-        //     else if (this.isresizingobject) {
-        //         this.selectedDrawnObject.UpdateBoundingBox("renderObjectResizePreview");
-        //         let strokebox = this.selectedDrawnObject.getCachedBoundingBox();
-        //         let strokewidth = (strokebox.maxX - strokebox.originx);
-        //         let strokeheight = (strokebox.maxY - strokebox.originy);
-        //         let first = this.currentStrokeData.points[0];
-        //         let last = this.currentStrokeData.points[this.currentStrokeData.points.length - 1];
-        //         let resizewidth = ((last.x) - (first.x));
-        //         let resizeheight = ((last.y) - (first.y));
-        //         let xfactor = 1 + (resizewidth / strokewidth);//remove padding
-        //         let yfactor = 1 + (resizeheight / strokeheight);
-        //         if (this.selectedDrawnObject.objecttype == "DRAW" || this.selectedDrawnObject.objecttype == "RECTANGLE") {
-        //             this.selectedDrawnObject.UpdateBoundingBox("PointerUpEvent 'SELECT'");
-        //             let selectedstrokebox = this.selectedDrawnObject.getCachedBoundingBox();
-        //             let selectedstrokewidth = selectedstrokebox.maxX - selectedstrokebox.originx;
-        //             let selectedstrokeheight = selectedstrokebox.maxY - selectedstrokebox.originy;
-        //             let first = this.currentStrokeData.points[0];
-        //             let last = this.currentStrokeData.points[this.currentStrokeData.points.length - 1];
-        //             let resizewidth = last.x - first.x;
-        //             let resizeheight = last.y - first.y;
-        //             if (this.hoveredSelectionPoint == "NE") {
-        //                 resizeheight = resizeheight * -1;
-        //             }
-        //             if (this.hoveredSelectionPoint == "SW") {
-        //                 resizewidth = resizewidth * -1;
-        //             }
-        //             if (this.hoveredSelectionPoint == "NW") {
-        //                 resizewidth = resizewidth * -1;
-        //                 resizeheight = resizeheight * -1;
-        //             }
-        //             let xfactor = 1 + (resizewidth / selectedstrokewidth);
-        //             let yfactor = 1 + (resizeheight / selectedstrokeheight);
-        //             //sanity check
-        //             if (this.currentStrokeData == null) {
-        //                 return;
-        //             }
-        //             let relocatex = 0;
-        //             let relocatey = 0;
-        //             if (this.hoveredSelectionPoint == "NE") {
-        //                 relocatey = resizeheight;
-        //             }
-        //             if (this.hoveredSelectionPoint == "SW") {
-        //                 relocatex = resizewidth;
-        //             }
-        //             if (this.hoveredSelectionPoint == "NW") {
-        //                 relocatey = resizeheight;
-        //                 relocatex = resizewidth;
-        //             }
-        //             for (let i = 0; i < this.selectedDrawnObject.points.length; i++) {
-        //                 let currentpoint = this.selectedDrawnObject.points[i];
-        //                 let transformedpoint = this.TransformPoint(currentpoint.x - selectedstrokebox.originx, currentpoint.y - selectedstrokebox.originy, xfactor, 0, 0, yfactor, 0, 0);
-        //                 let currentactualpoint = this.selectedDrawnObject.points[i];
-        //                 currentactualpoint.x = transformedpoint.x + selectedstrokebox.originx - relocatex;
-        //                 currentactualpoint.y = transformedpoint.y + selectedstrokebox.originy - relocatey;
-        //             }
-        //         }
-        //         else if (this.selectedDrawnObject.objecttype == "CIRCLE") {
-        //             let firstpoint = this.selectedDrawnObject.points[0];
-        //             let lastpoint = this.selectedDrawnObject.points[this.selectedDrawnObject.points.length - 1];
-        //             strokewidth = Math.abs(firstpoint.x - lastpoint.x);
-        //             strokeheight = Math.abs(firstpoint.y - lastpoint.y);
-        //             if (this.hoveredSelectionPoint == "P") {
-        //                 resizeheight = resizeheight * -1; //invert y                
-        //             }
-        //             let circlexfactor = 1 + (resizewidth / strokewidth);//remove padding
-        //             let circleyfactor = 1 + (resizeheight / strokeheight);
-        //             this.ccontext.beginPath();
-        //             let newfinal = this.TransformPoint(lastpoint.x - (firstpoint.x), lastpoint.y - (firstpoint.y), circlexfactor, 0, 0, circleyfactor, 0, 0);
-        //             newfinal.x = newfinal.x + firstpoint.x;
-        //             newfinal.y = newfinal.y + firstpoint.y;
-        //             let newwidth = Math.abs(newfinal.x - firstpoint.x);
-        //             let newheight = Math.abs(newfinal.y - firstpoint.y);
-        //             for (let i = 0; i < this.selectedDrawnObject.points.length; i++) {
-        //                 if (this.hoveredSelectionPoint == "P") {
-        //                     let currentpoint = this.selectedDrawnObject.points[i];
-        //                     let transformedpoint = this.TransformPoint(currentpoint.x - (firstpoint.x), currentpoint.y - (firstpoint.y), circlexfactor, 0, 0, circleyfactor, 0, 0);
-        //                     currentpoint.x = transformedpoint.x + firstpoint.x;
-        //                     currentpoint.y = transformedpoint.y + firstpoint.y;
-        //                     //this.ccontext.lineTo(transformedpoint.x + (firstpoint.x),transformedpoint.y + (firstpoint.y));
-        //                 }
-        //             }
-        //         }
-        //     }
-        //     else {
-        //         this.selectedMultiDrawnObjects = null;
-        //         this.selectedDrawnObject = null;
-        //         if (this.currentStrokeData.length() < this.multiselectionMinimumLength) {
-        //             //cursor position in canvas:
-        //             let x = e.pageX - this.canvas.offsetLeft + this.pendetails.scrollx;
-        //             let y = e.pageY - this.canvas.offsetTop + this.pendetails.scrolly;
-        //             //get all strokes etc that are near the cursor
-        //             this.selectedMultiDrawnObjects = null;
-        //             this.SelectDrawnObjectAtPoint(x, y)
-        //             this.currentStrokeData = null;
-        //         }
-        //         else {
-        //             this.currentStrokeData.UpdateBoundingBox("doesnt matter");
-        //             let bounds = this.currentStrokeData.getCachedBoundingBox();
-        //             this.SelectDrawnObjectsInsideBounds(bounds);
-        //             this.currentStrokeData = null;
-        //             this.selectedDrawnObject = null;
-        //         }
-        //     }
-        //     this.ismovingobject = false;
-        //     //this.selectedMultiDrawnObjects = null; //todo, deslecting multidrawnobjects to fix bug, needs work
-        // }
-        // if (this.selectedTool == "TEXT") {
-        //     //dont clear stroke if entering text
-        // }
-        // else {
-        // }
-        // //since the user has drawn a new object, we can clear the redo stack
-        // this.isresizingobject = false;
-        // this.ccontext.closePath();
-        // this.currentStrokeData = null;
-        // ("about to update background render");
-        // this.UpdateBackgroundRender();
-        // //this.redoStack = []; //todo redo stack needs ordering after undoing and then adding more content
+        this.cursor.selectmodifier = "";
     };
     Stemcanvas.prototype.PointerDownEvent = function (e) {
         e.preventDefault();
         this.pen.X = e.pageX - (this.canvascontainer.offsetLeft) + this.canvasscrollx;
         this.pen.Y = e.pageY - (this.canvascontainer.offsetTop) + this.canvascrolly;
-        console.log(e.pointerType);
         if (e.pointerType == "touch" || e.pointerType == "pen") {
             this.touchcount++;
             this.debugtext(this.touchcount);
@@ -1490,11 +1268,9 @@ var Stemcanvas = /** @class */ (function () {
             }
             else {
                 if (this.toolbox.selectedtool == "SELECT") {
-                    console.log("checking for intersects from touch");
                     //now need to check if intersecting with any objects
                     if (this.selectionManager.currentlySelected != null) {
                         //checking if intersecting single selected item
-                        console.log("single check intersect");
                         this.selectionManager.currentlySelected.UpdateBoundingBox("");
                         var box = this.selectionManager.currentlySelected.getCachedBoundingBox();
                         if (box.Intersects(this.pen.X, this.pen.Y)) {
@@ -1505,7 +1281,6 @@ var Stemcanvas = /** @class */ (function () {
                     //we need to do both checks so no else here please :D
                     else if (this.selectionManager.currentlySelectedMulti != null) {
                         //checking if intersecting a group selection
-                        console.log("group check intersect");
                         var box = this.selectionManager.getGroupBoundingBox();
                         if (box.Intersects(this.pen.X, this.pen.Y)) {
                             //now check if its in one of the corners
@@ -1581,12 +1356,9 @@ var Stemcanvas = /** @class */ (function () {
         e.preventDefault();
         this.pen.onCanvas = false;
     };
-    // crystaliseDrawing() {
-    //     createImageBitmap(this.drawingcanvas).then((bmp) => { this.flatimage = bmp });
-    // }
     Stemcanvas.prototype.updateDrawing = function () {
-        var _this = this;
         //clear drawingcanvas:
+        var _this = this;
         this.contextDrawing.clearRect(0, 0, Canvasconstants.width, Canvasconstants.height);
         this.selectionManager.fresh = false;
         if (this.drawingdata.length < 1) {
@@ -1661,7 +1433,6 @@ var Stemcanvas = /** @class */ (function () {
     };
     Stemcanvas.prototype.resizeStroke = function (inputstroke, resizevector, modifier) {
         var _this = this;
-        console.log(modifier);
         inputstroke.UpdateBoundingBox("");
         var strokebox = inputstroke.getCachedBoundingBox();
         //takes input stroke and return
@@ -1754,7 +1525,7 @@ var Stemcanvas = /** @class */ (function () {
         var timertext = document.getElementById("questiontimer");
         var startsynctime = performance.now();
         var startClockTime = new Date().getTime();
-        this.starttimeclock = new Date().toLocaleString();
+        this.starttimeclock = new Date().toISOString();
         this.starttimeperf = startsynctime.toString();
         var x = setInterval(function () {
             var currentTime = new Date().getTime();
@@ -1775,7 +1546,7 @@ var Stemcanvas = /** @class */ (function () {
         // SAVE THE SESSION INFO FILE
         var session = new Sessioninfo();
         session.start = this.starttimeclock;
-        session.end = new Date().toLocaleString();
+        session.end = new Date().toISOString();
         session.startperf = this.starttimeperf;
         session.devicetype = this.devicetype;
         session.task = this.task;
@@ -1788,7 +1559,6 @@ var Stemcanvas = /** @class */ (function () {
         packageoutput.imagefile = image;
         // let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(packageoutput));
         var dataStr = JSON.stringify(packageoutput);
-        console.log(dataStr);
         //window.open(dataStr);
         // var anchor = document.createElement('a');
         // anchor.setAttribute("href", dataStr);
@@ -1801,7 +1571,10 @@ var Stemcanvas = /** @class */ (function () {
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.onreadystatechange = function () {
             if (xhr.readyState === 4 && xhr.status === 200) {
-                console.log(xhr.responseText);
+                if (xhr.responseText == "Success") {
+                    //@ts-ignore 
+                    M.toast({ html: 'Drawing submitted' });
+                }
             }
         };
         xhr.send(dataStr);
@@ -1811,34 +1584,6 @@ var Stemcanvas = /** @class */ (function () {
         else {
             window.location.href = "index.html?q=nextquestion";
         }
-        // console.log(xhr.response);
-        // else {
-        //     //build image into a json uri
-        //     let image = this.drawingcanvas.toDataURL("image/png").replace("image/png", "image/octet-stream");
-        //     var anchor = document.createElement('a');
-        //     anchor.setAttribute('download', `canvas - .png`);
-        //     anchor.setAttribute('href', image);
-        //     anchor.click();
-        //     //Export JSON
-        //     var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.drawingdata));
-        //     anchor = document.createElement('a');
-        //     anchor.setAttribute("href", dataStr);
-        //     anchor.setAttribute("download", `${participantDeviceTask} - drawingdata.json`);
-        //     anchor.click();
-        //     //and session information
-        //     let session = new Sessioninfo();
-        //     session.start = this.starttimeclock
-        //     session.end = new Date().toLocaleString();
-        //     session.startperf = this.starttimeperf;
-        //     session.devicetype = this.devicetype;
-        //     session.task = this.task;
-        //     session.participanttoken = this.participant;
-        //     let sessionoutputstring = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(session));
-        //     anchor = document.createElement('a');
-        //     anchor.setAttribute("href", sessionoutputstring);
-        //     anchor.setAttribute("download", `${participantDeviceTask} - sessioninfo.json`);
-        //     anchor.click();
-        // }
     };
     Stemcanvas.prototype.NextAndUpload = function () {
         // let participantDeviceTask = `${this.participant} - ${this.devicetype} - ${this.task}`;
@@ -1853,11 +1598,6 @@ var Stemcanvas = /** @class */ (function () {
         this.debug.innerText = input;
     };
     Stemcanvas.prototype.stroke = function (context) {
-        //     contextDrawing: CanvasRenderingContext2D;
-        // contextSelection: CanvasRenderingContext2D;
-        // contextCursor: CanvasRenderingContext2D;
-        // contextInterface: CanvasRenderingContext2D;
-        // contextDebug: CanvasRenderingContext2D;
         if (context == "draw") {
             this.contextDrawing.stroke();
             this.contextDrawing.closePath();
@@ -1890,60 +1630,457 @@ var Vector = /** @class */ (function () {
 }());
 var UndoAction = /** @class */ (function () {
     function UndoAction(actiontype) {
-        this.actiontype = actiontype;
+        this.actiontype = actiontype; //only actiontype is required, all other parameters are filled post construction                
     }
+    UndoAction.prototype.setNewDrawnObject = function (stroke, type) {
+        this.stroke = stroke;
+        this.drawtype = type;
+    };
+    UndoAction.prototype.setMoveSingle = function (inputstroke, inputVector) {
+        this.stroke = inputstroke;
+        this.vector = inputVector;
+    };
+    UndoAction.prototype.setMoveMulti = function (strokes, vector) {
+        this.multistrokes = strokes;
+        this.vector = vector;
+    };
+    UndoAction.prototype.setResizeSingle = function (stroke, vector, direction, invertingx, invertingy) {
+        this.stroke = stroke;
+        this.vector = vector;
+        this.direction = direction;
+        this.invertingx = invertingx;
+        this.invertingy = invertingy;
+    };
+    UndoAction.prototype.setResizeMulti = function (strokes, vector, direction, invertingx, invertingy) {
+        this.multistrokes = strokes;
+        this.vector = vector;
+        this.direction = direction;
+        this.invertingx = invertingx;
+        this.invertingy = invertingy;
+    };
+    UndoAction.prototype.setColourSingle = function (stroke, previouscolour, newcolour) {
+        this.stroke = stroke;
+        this.previouscolour = previouscolour;
+        this.newcolour = newcolour;
+    };
+    UndoAction.prototype.setColourMulti = function (strokes, previouscolours, newcolour) {
+        this.multistrokes = strokes;
+        this.previouscolours = previouscolours;
+        this.newcolour = newcolour;
+    };
+    UndoAction.prototype.setWidthSingle = function (stroke, previouswidth, newwidth) {
+        this.stroke = stroke;
+        this.previouswidth = previouswidth;
+        this.newwidth = newwidth;
+    };
+    UndoAction.prototype.setWidthMulti = function (strokes, previouswidths, newwidth) {
+        this.multistrokes = strokes;
+        this.previouswidths = previouswidths;
+        this.newwidth = newwidth;
+    };
+    UndoAction.prototype.setErase = function (stroke) {
+    };
     return UndoAction;
 }());
-var UndoMoveAction = /** @class */ (function (_super) {
-    __extends(UndoMoveAction, _super);
-    function UndoMoveAction(moveVector, strokeid) {
-        var _this = _super.call(this, "MOVE") || this;
-        _this.vector = moveVector;
-        _this.id = strokeid;
-        return _this;
-    }
-    return UndoMoveAction;
-}(UndoAction));
-var UndoResizeAction = /** @class */ (function (_super) {
-    __extends(UndoResizeAction, _super);
-    function UndoResizeAction(resizeVector, strokeid, direction) {
-        var _this = _super.call(this, "RESIZE") || this;
-        _this.vector = resizeVector;
-        _this.id = strokeid;
-        _this.direction = direction;
-        return _this;
-    }
-    return UndoResizeAction;
-}(UndoAction));
-var UndoEraseAction = /** @class */ (function (_super) {
-    __extends(UndoEraseAction, _super);
-    function UndoEraseAction(strokeobject) {
-        var _this = _super.call(this, "ERASE") || this;
-        _this.thestroke = strokeobject;
-        return _this;
-    }
-    return UndoEraseAction;
-}(UndoAction));
-var UndoUndoObject = /** @class */ (function (_super) {
-    __extends(UndoUndoObject, _super);
-    function UndoUndoObject(strokeobject) {
-        var _this = _super.call(this, "UNDO") || this;
-        _this.thestroke = strokeobject;
-        return _this;
-    }
-    return UndoUndoObject;
-}(UndoAction));
 var StateManager = /** @class */ (function () {
-    function StateManager() {
+    function StateManager(drawing) {
+        this.data = drawing;
+        this.undostack = [];
+        this.redostack = [];
     }
-    StateManager.prototype.save = function () {
+    StateManager.prototype.save = function (action) {
+        this.undostack.push(action);
+        this.redostack = [];
     };
     StateManager.prototype.undo = function () {
+        if (this.undostack.length < 1) {
+            return;
+        }
+        var lastaction = this.undostack[this.undostack.length - 1];
+        if (lastaction.actiontype == UndoActionTypes.newdraw) {
+            this.data.pop(); //pop off drawing
+            var action = this.undostack.pop();
+            this.redostack.push(action); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.colourmulti) {
+            var action = this.undostack.pop();
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                var currenstroke = action.multistrokes[i];
+                currenstroke.strokecolour = action.previouscolours[i];
+            }
+            this.redostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.coloursingle) {
+            var action = this.undostack.pop();
+            action.stroke.strokecolour = lastaction.previouscolour;
+            this.redostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.erase) {
+        }
+        else if (lastaction.actiontype == UndoActionTypes.movemulti) {
+            var action_1 = this.undostack.pop();
+            action_1.multistrokes.forEach(function (s) {
+                s.points.forEach(function (p) {
+                    p.x -= action_1.vector.x;
+                    p.y -= action_1.vector.y;
+                });
+            });
+            this.redostack.push(action_1);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.movesingle) {
+            var action_2 = this.undostack.pop();
+            action_2.stroke.points.forEach(function (p) {
+                p.x -= action_2.vector.x;
+                p.y -= action_2.vector.y;
+            });
+            this.redostack.push(action_2);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.resizemulti) {
+            var action = this.undostack.pop();
+            var invertedVector = this.invertVector(action.vector.x, action.vector.y);
+            var direction = action.direction;
+            var ns = direction.substring(0, 1);
+            var ew = direction.substring(1, 2);
+            var invertcheckeddirection = "";
+            if (lastaction.invertingy) {
+                if (ns == "N") {
+                    invertcheckeddirection += "S";
+                }
+                else if (ns == "S") {
+                    invertcheckeddirection += "N";
+                }
+            }
+            else {
+                invertcheckeddirection += ns;
+            }
+            if (lastaction.invertingx) {
+                if (ew == "E") {
+                    invertcheckeddirection += "W";
+                }
+                else if (ew == "W") {
+                    invertcheckeddirection += "E";
+                }
+            }
+            else {
+                invertcheckeddirection += ew;
+            }
+            var box = new StemstrokeBox();
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                var s = action.multistrokes[i];
+                var lowestx = s.points.reduce(function (prev, curr) {
+                    return prev.x < curr.x ? prev : curr;
+                });
+                var heighestx = s.points.reduce(function (prev, curr) {
+                    return prev.x > curr.x ? prev : curr;
+                });
+                var lowesty = s.points.reduce(function (prev, curr) {
+                    return prev.y < curr.y ? prev : curr;
+                });
+                var heighesty = s.points.reduce(function (prev, curr) {
+                    return prev.y > curr.y ? prev : curr;
+                });
+                if (i == 0) {
+                    box.originx = lowestx.x;
+                    box.originy = lowesty.y;
+                    box.maxX = heighestx.x;
+                    box.maxY = heighesty.y;
+                }
+                else {
+                    if (lowestx.x < box.originx) {
+                        box.originx = lowestx.x;
+                    }
+                    if (lowesty.y < box.originy) {
+                        box.originy = lowesty.y;
+                    }
+                    if (heighestx.x > box.maxX) {
+                        box.maxX = heighestx.x;
+                    }
+                    if (heighesty.y > box.maxY) {
+                        box.maxY = heighesty.y;
+                    }
+                }
+            }
+            var resizedstrokes = this.resizeMulti(action.multistrokes, box, invertedVector, invertcheckeddirection);
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                for (var y = 0; y < action.multistrokes[i].points.length; y++) {
+                    action.multistrokes[i].points[y].x = resizedstrokes[i].points[y].x;
+                    action.multistrokes[i].points[y].y = resizedstrokes[i].points[y].y;
+                }
+            }
+            this.redostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.resizesingle) {
+            var action = this.undostack.pop();
+            var invertedVector = this.invertVector(action.vector.x, action.vector.y);
+            var direction = action.direction;
+            var ns = direction.substring(0, 1);
+            var ew = direction.substring(1, 2);
+            var invertcheckeddirection = "";
+            if (lastaction.invertingy) {
+                if (ns == "N") {
+                    invertcheckeddirection += "S";
+                }
+                else if (ns == "S") {
+                    invertcheckeddirection += "N";
+                }
+            }
+            else {
+                invertcheckeddirection += ns;
+            }
+            if (lastaction.invertingx) {
+                if (ew == "E") {
+                    invertcheckeddirection += "W";
+                }
+                else if (ew == "W") {
+                    invertcheckeddirection += "E";
+                }
+            }
+            else {
+                invertcheckeddirection += ew;
+            }
+            //check invert for vector now:
+            var temp = this.resizeStroke(action.stroke, invertedVector, invertcheckeddirection);
+            for (var i = 0; i < action.stroke.points.length; i++) {
+                action.stroke.points[i] = temp.points[i];
+            }
+            this.redostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.widthmulti) {
+            var action = this.undostack.pop();
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                action.multistrokes[i].strokewidth = action.previouswidths[i];
+            }
+            this.redostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.widthsingle) {
+            lastaction.stroke.strokewidth = lastaction.previouswidth;
+            this.redostack.push(this.undostack.pop());
+        }
     };
     StateManager.prototype.redo = function () {
+        if (this.redostack.length < 1) {
+            return;
+        }
+        var lastaction = this.redostack[this.redostack.length - 1];
+        if (lastaction.actiontype == UndoActionTypes.newdraw) {
+            this.data.push(lastaction.stroke); //pop off drawing
+            this.undostack.push(this.redostack.pop()); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.movesingle) {
+            lastaction.stroke.points.forEach(function (s) {
+                s.x += lastaction.vector.x;
+                s.y += lastaction.vector.y;
+            });
+            this.undostack.push(this.redostack.pop()); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.movemulti) {
+            lastaction.multistrokes.forEach(function (s) {
+                s.points.forEach(function (p) {
+                    p.x += lastaction.vector.x;
+                    p.y += lastaction.vector.y;
+                });
+            });
+            this.undostack.push(this.redostack.pop()); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.resizesingle) {
+            var temp = this.resizeStroke(lastaction.stroke, lastaction.vector, lastaction.direction);
+            for (var i = 0; i < temp.points.length; i++) {
+                lastaction.stroke.points[i] = temp.points[i];
+            }
+            this.undostack.push(this.redostack.pop()); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.resizemulti) {
+            var box = new StemstrokeBox();
+            for (var i = 0; i < lastaction.multistrokes.length; i++) {
+                var s = lastaction.multistrokes[i];
+                var lowestx = s.points.reduce(function (prev, curr) {
+                    return prev.x < curr.x ? prev : curr;
+                });
+                var heighestx = s.points.reduce(function (prev, curr) {
+                    return prev.x > curr.x ? prev : curr;
+                });
+                var lowesty = s.points.reduce(function (prev, curr) {
+                    return prev.y < curr.y ? prev : curr;
+                });
+                var heighesty = s.points.reduce(function (prev, curr) {
+                    return prev.y > curr.y ? prev : curr;
+                });
+                if (i == 0) {
+                    box.originx = lowestx.x;
+                    box.originy = lowesty.y;
+                    box.maxX = heighestx.x;
+                    box.maxY = heighesty.y;
+                }
+                else {
+                    if (lowestx.x < box.originx) {
+                        box.originx = lowestx.x;
+                    }
+                    if (lowesty.y < box.originy) {
+                        box.originy = lowesty.y;
+                    }
+                    if (heighestx.x > box.maxX) {
+                        box.maxX = heighestx.x;
+                    }
+                    if (heighesty.y > box.maxY) {
+                        box.maxY = heighesty.y;
+                    }
+                }
+            }
+            var temp = this.resizeMulti(lastaction.multistrokes, box, lastaction.vector, lastaction.direction);
+            for (var i = 0; i < lastaction.multistrokes.length; i++) {
+                for (var y = 0; y < lastaction.multistrokes[i].points.length; y++) {
+                    lastaction.multistrokes[i].points[y].x = temp[i].points[y].x;
+                    lastaction.multistrokes[i].points[y].y = temp[i].points[y].y;
+                }
+            }
+            this.undostack.push(this.redostack.pop()); //pop undo action off the undo stack into the redo stack
+        }
+        else if (lastaction.actiontype == UndoActionTypes.coloursingle) {
+            var action = this.redostack.pop();
+            action.stroke.strokecolour = action.newcolour;
+            this.undostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.widthsingle) {
+            var action = this.redostack.pop();
+            action.stroke.strokewidth = action.newwidth;
+            this.undostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.colourmulti) {
+            var action = this.redostack.pop();
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                var cur = action.multistrokes[i];
+                cur.strokecolour = action.newcolour;
+            }
+            this.undostack.push(action);
+        }
+        else if (lastaction.actiontype == UndoActionTypes.widthmulti) {
+            var action = this.redostack.pop();
+            for (var i = 0; i < action.multistrokes.length; i++) {
+                var cur = action.multistrokes[i];
+                cur.strokewidth = action.newwidth;
+            }
+            this.undostack.push(action);
+        }
+    };
+    StateManager.prototype.clear = function () {
+        this.undostack = [];
+        this.redostack = [];
+    };
+    StateManager.prototype.resizePoint = function (inputx, inputy, a, b, c, d) {
+        // how to use: currentpoint.x - (strokebox.originx), currentpoint.y - (strokebox.originy), xfactor, 0, 0, yfactor, 0, 0
+        // will resize based from origin
+        var outputx = ((a * inputx) + (b * inputx));
+        var outputy = ((c * inputy) + (d * inputy));
+        return new Stempoint(outputx, outputy);
+    };
+    StateManager.prototype.resizeStroke = function (inputstroke, resizevector, modifier) {
+        var _this = this;
+        inputstroke.UpdateBoundingBox("");
+        var strokebox = inputstroke.getCachedBoundingBox();
+        //takes input stroke and return
+        var outputstroke = new Stemstroke();
+        if (modifier == "NW") {
+            var resizefactor_9 = new Vector(1 + ((resizevector.x / (strokebox.maxX - strokebox.originx)) * -1), 1 + ((resizevector.y / (strokebox.maxY - strokebox.originy)) * -1));
+            inputstroke.points.forEach(function (p) {
+                var resizedpoint = _this.resizePoint(p.x - strokebox.originx, p.y - strokebox.originy, resizefactor_9.x, 0, 0, resizefactor_9.y);
+                resizedpoint.x += strokebox.originx + resizevector.x;
+                resizedpoint.y += strokebox.originy + resizevector.y;
+                outputstroke.points.push(resizedpoint);
+            });
+        }
+        else if (modifier == "NE") {
+            var resizefactor_10 = new Vector(1 + (resizevector.x / (strokebox.maxX - strokebox.originx)), 1 + ((resizevector.y / (strokebox.maxY - strokebox.originy)) * -1));
+            inputstroke.points.forEach(function (p) {
+                var resizedpoint = _this.resizePoint(p.x - strokebox.originx, p.y - strokebox.originy, resizefactor_10.x, 0, 0, resizefactor_10.y);
+                resizedpoint.x += strokebox.originx;
+                resizedpoint.y += strokebox.originy + resizevector.y;
+                outputstroke.points.push(resizedpoint);
+            });
+        }
+        else if (modifier == "SE") {
+            var resizefactor_11 = new Vector(1 + (resizevector.x / (strokebox.maxX - strokebox.originx)), 1 + (resizevector.y / (strokebox.maxY - strokebox.originy)));
+            inputstroke.points.forEach(function (p) {
+                var resizedpoint = _this.resizePoint(p.x - strokebox.originx, p.y - strokebox.originy, resizefactor_11.x, 0, 0, resizefactor_11.y);
+                resizedpoint.x += strokebox.originx;
+                resizedpoint.y += strokebox.originy;
+                outputstroke.points.push(resizedpoint);
+            });
+        }
+        else if (modifier == "SW") {
+            var resizefactor_12 = new Vector(1 + ((resizevector.x / (strokebox.maxX - strokebox.originx)) * -1), 1 + (resizevector.y / (strokebox.maxY - strokebox.originy)));
+            inputstroke.points.forEach(function (p) {
+                var resizedpoint = _this.resizePoint(p.x - strokebox.originx, p.y - strokebox.originy, resizefactor_12.x, 0, 0, resizefactor_12.y);
+                resizedpoint.x += strokebox.originx + resizevector.x;
+                resizedpoint.y += strokebox.originy;
+                outputstroke.points.push(resizedpoint);
+            });
+        }
+        return outputstroke;
+    };
+    StateManager.prototype.resizeMulti = function (inputstrokes, boundingbox, resizevector, modifier) {
+        var _this = this;
+        var output = new Array();
+        inputstrokes.forEach(function (inputstroke) {
+            var outputstroke = new Stemstroke();
+            outputstroke.objecttype = inputstroke.objecttype;
+            if (modifier == "NW") {
+                var resizefactor_13 = new Vector(1 + ((resizevector.x / (boundingbox.maxX - boundingbox.originx)) * -1), 1 + ((resizevector.y / (boundingbox.maxY - boundingbox.originy)) * -1));
+                inputstroke.points.forEach(function (p) {
+                    var resizedpoint = _this.resizePoint(p.x - boundingbox.originx, p.y - boundingbox.originy, resizefactor_13.x, 0, 0, resizefactor_13.y);
+                    resizedpoint.x += boundingbox.originx + resizevector.x;
+                    resizedpoint.y += boundingbox.originy + resizevector.y;
+                    outputstroke.points.push(resizedpoint);
+                });
+            }
+            else if (modifier == "NE") {
+                var resizefactor_14 = new Vector(1 + (resizevector.x / (boundingbox.maxX - boundingbox.originx)), 1 + ((resizevector.y / (boundingbox.maxY - boundingbox.originy)) * -1));
+                inputstroke.points.forEach(function (p) {
+                    var resizedpoint = _this.resizePoint(p.x - boundingbox.originx, p.y - boundingbox.originy, resizefactor_14.x, 0, 0, resizefactor_14.y);
+                    resizedpoint.x += boundingbox.originx;
+                    resizedpoint.y += boundingbox.originy + resizevector.y;
+                    outputstroke.points.push(resizedpoint);
+                });
+            }
+            else if (modifier == "SE") {
+                var resizefactor_15 = new Vector(1 + (resizevector.x / (boundingbox.maxX - boundingbox.originx)), 1 + (resizevector.y / (boundingbox.maxY - boundingbox.originy)));
+                inputstroke.points.forEach(function (p) {
+                    var resizedpoint = _this.resizePoint(p.x - boundingbox.originx, p.y - boundingbox.originy, resizefactor_15.x, 0, 0, resizefactor_15.y);
+                    resizedpoint.x += boundingbox.originx;
+                    resizedpoint.y += boundingbox.originy;
+                    outputstroke.points.push(resizedpoint);
+                });
+            }
+            else if (modifier == "SW") {
+                var resizefactor_16 = new Vector(1 + ((resizevector.x / (boundingbox.maxX - boundingbox.originx)) * -1), 1 + (resizevector.y / (boundingbox.maxY - boundingbox.originy)));
+                inputstroke.points.forEach(function (p) {
+                    var resizedpoint = _this.resizePoint(p.x - boundingbox.originx, p.y - boundingbox.originy, resizefactor_16.x, 0, 0, resizefactor_16.y);
+                    resizedpoint.x += boundingbox.originx + resizevector.x;
+                    resizedpoint.y += boundingbox.originy;
+                    outputstroke.points.push(resizedpoint);
+                });
+            }
+            output.push(outputstroke);
+        });
+        return output;
+    };
+    StateManager.prototype.invertVector = function (x, y) {
+        return new Vector(-x, -y);
     };
     return StateManager;
 }());
+var UndoActionTypes;
+(function (UndoActionTypes) {
+    UndoActionTypes[UndoActionTypes["movesingle"] = 0] = "movesingle";
+    UndoActionTypes[UndoActionTypes["movemulti"] = 1] = "movemulti";
+    UndoActionTypes[UndoActionTypes["resizesingle"] = 2] = "resizesingle";
+    UndoActionTypes[UndoActionTypes["resizemulti"] = 3] = "resizemulti";
+    UndoActionTypes[UndoActionTypes["coloursingle"] = 4] = "coloursingle";
+    UndoActionTypes[UndoActionTypes["colourmulti"] = 5] = "colourmulti";
+    UndoActionTypes[UndoActionTypes["newdraw"] = 6] = "newdraw";
+    UndoActionTypes[UndoActionTypes["erase"] = 7] = "erase";
+    UndoActionTypes[UndoActionTypes["widthsingle"] = 8] = "widthsingle";
+    UndoActionTypes[UndoActionTypes["widthmulti"] = 9] = "widthmulti";
+})(UndoActionTypes || (UndoActionTypes = {}));
 var Canvasconstants = /** @class */ (function () {
     function Canvasconstants() {
     }
@@ -2200,7 +2337,6 @@ var SelectionManager = /** @class */ (function () {
             }
             else if (selected.length > 1) {
                 _this.currentlySelectedMulti = selected;
-                console.log(_this.currentlySelectedMulti);
             }
             else {
                 _this.multiBoundingBox = null;
