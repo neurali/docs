@@ -36,8 +36,7 @@ var Stemcanvas = /** @class */ (function () {
         this.participant = sessionStorage.getItem("token");
         if (regex.test(this.participant)) {
             //get values from the participant token
-            this.taskset = "longitudinal";
-            debugger;
+            //this.taskset = "longitudinal";     removed as this is what hides the next button       
             var split = this.participant.charAt(2); //A == Apple W== Wacom
             var last = this.participant.charAt(this.participant.length - 1);
             var secondlast = this.participant.charAt(this.participant.length - 2);
@@ -64,6 +63,7 @@ var Stemcanvas = /** @class */ (function () {
         var sessioninfo = document.getElementById("sessioninfo");
         var attTasknumber = sessioninfo.attributes.getNamedItem("data-tasknumber");
         this.task = attTasknumber.value;
+        console.log(this.task);
         if (this.taskset == "a") {
             if (this.task == "q3") {
                 document.getElementById("btnNext").classList.add("hidden");
@@ -71,6 +71,17 @@ var Stemcanvas = /** @class */ (function () {
         }
         else if (this.taskset == "b") {
             if (this.task == "q6") {
+                document.getElementById("btnNext").classList.add("hidden");
+            }
+        }
+        else if (this.taskset == "c") {
+            if (this.task == "q9") {
+                document.getElementById("btnNext").classList.add("hidden");
+            }
+        }
+        else if (this.taskset == "d") {
+            console.log(this.task);
+            if (this.task == "q12") {
                 document.getElementById("btnNext").classList.add("hidden");
             }
         }
