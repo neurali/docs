@@ -85,6 +85,11 @@ var Stemcanvas = /** @class */ (function () {
                 document.getElementById("btnNext").classList.add("hidden");
             }
         }
+        else if (this.task.charAt(0) == 'p') {
+            if (this.task == "p3") {
+                document.getElementById("btnNext").classList.add("hidden");
+            }
+        }
         this.menuImage.src = "media/cursors/c_Menu.png";
         this.drawingdata = new Array();
         this.canvasbackground = document.getElementById("canvasbackground");
@@ -229,6 +234,11 @@ var Stemcanvas = /** @class */ (function () {
             _this.uploadData();
         });
         if (this.observation == "true") {
+            document.getElementById("btnNext").addEventListener("click", function () {
+                _this.NextAndUpload();
+            });
+        }
+        else if (this.task.charAt(0) == 'p') {
             document.getElementById("btnNext").addEventListener("click", function () {
                 _this.NextAndUpload();
             });
@@ -1575,10 +1585,18 @@ var Stemcanvas = /** @class */ (function () {
     };
     Stemcanvas.prototype.NextAndUpload = function () {
         // let participantDeviceTask = `${this.participant} - ${this.devicetype} - ${this.task}`;
-        var currentquestionarray = this.task.split('q');
-        var currentquestion = parseInt(currentquestionarray[1]);
-        var nextquestion = "q" + (currentquestion + 1) + ".html";
-        //document.location.href = (nextquestion);
+        debugger;
+        var nextquestion = "";
+        //p1, p2, p3 are the practice test questions
+        if (this.task.charAt(0) == 'p') {
+            var questionindex = this.task.charAt(1);
+            nextquestion = "p" + (parseInt(questionindex) + 1) + ".html";
+        }
+        else {
+            var currentquestionarray = this.task.split('q');
+            var currentquestion = parseInt(currentquestionarray[1]);
+            nextquestion = "q" + (currentquestion + 1) + ".html";
+        }
         window.open(nextquestion);
         this.uploadData();
     };
